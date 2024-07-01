@@ -14,27 +14,15 @@ import numpy as np
 from datetime import datetime
 from PyQt5 import QtCore, QtGui, QtWidgets
 
-ImageFile.LOAD_TRUNCATED_IMAGES = True  # To handle truncated image files
-
-# Fetch the API key from environment variables
+ImageFile.LOAD_TRUNCATED_IMAGES = True 
 api_key = os.getenv('GOOGLE_API_KEY')
-
-# Configure the Generative AI model
 genai.configure(api_key=api_key)
 model = genai.GenerativeModel(model_name='gemini-1.5-flash-latest')
-
-# Start the chat session
 chat = model.start_chat(history=[])
-
-# Define the image path
 img_path = r'C:\Users\fbb92\OneDrive\Desktop\Projects\test\geminiOS\vision\img\img1.png'
-
-# Event to signal when to stop the threads
 exit_event = threading.Event()
 stop_listening_event = threading.Event()
-
-screenshot_interval = 2  # Default screenshot interval in seconds
-
+screenshot_interval = 2 
 
 class LLMVisionApp(QtWidgets.QMainWindow):
     def __init__(self):
@@ -99,19 +87,36 @@ class LLMVisionApp(QtWidgets.QMainWindow):
         global screenshot_interval
 
         if self.interval_input.text():
-            screenshot_interval = int(self.interval_input.text())
+            try:
+                screenshot_interval = int(self.interval_input.text())
+                if screenshot_interval < 1:
+                    raise ValueError(
+                        "Screenshot interval must be at least 1 second.")
+            except ValueError as e:
+                QtWidgets.QMessageBox.warning(self, "Invalid Interval", str(e))
+                return
 
         if self.listening:
             self.start_button.setText("Start")
             stop_audio()
+            exit_event.set()
+            stop_listening_event.set()
+
             if self.screenshot_thread:
-                exit_event.set()
-                self.screenshot_thread.join()
-                exit_event.clear()
+                self.screenshot_thread.join(timeout=5)  
+                if self.screenshot_thread.is_alive():
+                    print("Screenshot thread did not terminate, forcing stop")
+
             if self.listener_thread:
-                stop_listening_event.set()
-                self.listener_thread.join()
-                stop_listening_event.clear()
+                self.listener_thread.join(timeout=5) 
+                if self.listener_thread.is_alive():
+                    print("Listener thread did not terminate, forcing stop")
+
+            exit_event.clear()
+            stop_listening_event.clear()
+            self.screenshot_thread = None
+            self.listener_thread = None
+
         else:
             self.start_button.setText("Stop")
             self.screenshot_thread = threading.Thread(
@@ -121,6 +126,7 @@ class LLMVisionApp(QtWidgets.QMainWindow):
             self.listener_thread = threading.Thread(
                 target=listen_to_microphone)
             self.listener_thread.start()
+
         self.listening = not self.listening
 
     def update_image_output(self, text):
@@ -142,36 +148,45 @@ class LLMVisionApp(QtWidgets.QMainWindow):
                                                              "Text Files (*.txt);;All Files (*)", options=options)
         if file_name:
             with open(file_name, 'w') as f:
+                f.write("Image Analysis Output:\n")
+                f.write(self.image_output.toPlainText())
+                f.write("\n\nSpeech Synthesis Output:\n")
                 f.write(self.speech_output.toPlainText())
             QtWidgets.QMessageBox.information(
                 self, "Export Successful", f"Log exported to {file_name}")
 
-
-# Create a global reference to the GUI application instance
 app = None
-
 
 async def take_screenshot():
     global screenshot_interval
     while not exit_event.is_set():
         try:
             screenshot = ImageGrab.grab()
-            screenshot = screenshot.resize((800, 450))  # Downscale the image
+            screenshot = screenshot.resize((800, 450))
             screenshot.save(img_path)
             await preprocess_image(img_path)
         except Exception as e:
             print(f"Error taking screenshot: {e}")
-        # Take a screenshot every screenshot_interval seconds
-        await asyncio.sleep(screenshot_interval)
 
+        for _ in range(screenshot_interval * 10): 
+            if exit_event.is_set():
+                return
+            await asyncio.sleep(0.1)
 
 def run_screenshot_loop():
-    asyncio.run(take_screenshot())
+    try:
+        asyncio.run(take_screenshot())
+    except asyncio.CancelledError:
+        print("Screenshot loop cancelled")
+    except Exception as e:
+        print(f"Error in screenshot loop: {e}")
 
 
 async def preprocess_image(img_path):
     start_time = time.time()
     try:
+        if exit_event.is_set():
+            return
         img = Image.open(img_path)
         response = await asyncio.to_thread(
             model.generate_content,
@@ -186,38 +201,35 @@ async def preprocess_image(img_path):
                 "HARM_CATEGORY_DANGEROUS_CONTENT": "BLOCK_NONE"
             }
         )
+        if exit_event.is_set():
+            return
         print(f"Preprocessed image output: {response.text}")
         app.update_image_output(response.text)
-        # Send the preprocessed image context to the chat
         chat.send_message(f"Image analysis: {response.text}")
     except Exception as e:
         print(f"Error during preprocessing: {e}")
     end_time = time.time()
     print(f"Time for image analysis: {end_time - start_time:.2f} seconds")
 
-# Global variables for audio playback
+
 stop_event = threading.Event()
 audio_lock = threading.Lock()
 audio_thread = None
 current_playback_stream = None
 p = pyaudio.PyAudio()
 
-
 def listen_to_microphone():
     recognizer = sr.Recognizer()
     microphone = sr.Microphone()
-
     print("Listening...")
-
     def callback(recognizer, audio):
         if stop_listening_event.is_set():
             return False
         try:
-            stop_audio()  # Stop any playing audio immediately when speech is detected
+            stop_audio() 
             print("Processing...")
             text = recognizer.recognize_google(audio)
             print(f"Recognized: {text}")
-            # Add this line to show user's speech
             app.update_speech_output(text, is_user=True)
             if text.strip().lower() == 'exit':
                 exit_event.set()
@@ -238,7 +250,6 @@ def listen_to_microphone():
         while not exit_event.is_set() and not stop_listening_event.is_set():
             time.sleep(0.1)
     finally:
-        # Use wait_for_stop to stop listening immediately
         stop_listening(wait_for_stop=False)
 
 
@@ -271,7 +282,7 @@ async def synthesize_text(text):
     if response.status_code == 200:
         audio_content = response.json()["audioContent"]
         audio_buffer = base64.b64decode(audio_content)
-        audio_buffer = audio_buffer[44:]  # Remove the first 44 bytes
+        audio_buffer = audio_buffer[44:] 
         print("Speech synthesized and streaming started")
     else:
         print(f"Speech synthesis failed with status code {
@@ -284,7 +295,6 @@ async def synthesize_text(text):
           end_synthesize_time - start_synthesize_time:.2f} seconds")
 
     return audio_buffer
-
 
 def play_audio_from_buffer(audio_buffer):
     global audio_thread, stop_event, current_playback_stream
@@ -314,7 +324,6 @@ def play_audio_from_buffer(audio_buffer):
         audio_thread = threading.Thread(target=play_audio_internal)
         audio_thread.start()
 
-
 def stop_audio():
     global stop_event, current_playback_stream
     stop_event.set()
@@ -325,8 +334,6 @@ def stop_audio():
 async def process_request(user_input):
     try:
         start_time = time.time()
-
-        # Add system instruction as part of the conversation flow
         system_instruction = (
             "You are an assistant helping the user with their tasks. "
             "You will provide relevant information based on the user's queries and the context from the latest image data. "
@@ -339,31 +346,23 @@ async def process_request(user_input):
             "DO NOT START WITH 'IT SEEMS LIKE' OR 'BASED ON THE IMAGE ANALYSIS'"
             "START EACH CONVERSATION WITH THE ASSUMPTION YOU UNDERSTAND ALL THE CONTEXT OF WHATS BEING SHOWN"
             "IGNORE TERMINALS"
+            "IGNORE LLM VISION OS WINDOW"
             "DO NOT ASK QUESTIONS"
             "ALWAYS USE CHAT HISTORY AS CONTEXT. THIS IS YOUR MEMORY"
             "RESPONSES SHOULD ALWAYS BE BRIEF UNLESS TOLD OTHERWISE. TWO SENTENCES OR LESS"
         )
         chat.send_message(system_instruction)
-
-        # Generate the main response
         response = chat.send_message(user_input)
-
-        # Print the response
         print(response.text)
         app.update_speech_output(response.text)
-
-        # Synthesize text and get audio buffer
         start_speech_time = time.time()
         audio_buffer = await synthesize_text(response.text)
 
-        # Measure the end time right after synthesis
         end_time = time.time()
 
-        # Play the synthesized text from the buffer
         if audio_buffer:
             play_audio_from_buffer(audio_buffer)
 
-        # Calculate and print the elapsed time
         elapsed_time = end_time - start_time
         speech_time = start_speech_time - start_time
         print(f"Total request time: {elapsed_time:.2f} seconds")
@@ -377,11 +376,9 @@ async def process_request(user_input):
 def signal_handler(sig, frame):
     print("Exiting program due to keyboard interrupt...")
     exit_event.set()
-    os._exit(0)  # Forcefully exit
-
+    os._exit(0)  
 
 signal.signal(signal.SIGINT, signal_handler)
-
 
 def main():
     global app
@@ -396,8 +393,7 @@ def main():
     except KeyboardInterrupt:
         print("Exiting program due to keyboard interrupt...")
         exit_event.set()
-        os._exit(0)  # Forcefully exit
-
+        os._exit(0) 
 
 if __name__ == "__main__":
     main()
