@@ -1,6 +1,12 @@
 # LLM Vision OS
 
 LLM Vision OS is a Python-based application that utilizes Gemini 1.5 Flash API for image analysis and and Google Speech for speech synthesis. When you click 'start' it will take screenshots every few seconds for Gemini Flash to analyze. You can ask questions and get answers related to anything you're viewing on the screen. 
+
+
+![image](https://github.com/fbader927/OS-assist/assets/50185837/28645445-172b-4dfc-a8cf-8ecd61f315e2)
+
+
+
 ## Features
 
 - Capture and analyze screenshots at specified intervals
