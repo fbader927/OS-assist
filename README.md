@@ -18,6 +18,8 @@ LLM Vision OS is a Python-based application that utilizes Gemini 1.5 Flash API f
 
 - Python 3.10 or later
 - Required Python packages (see `requirements.txt`)
+- Google Cloud account with `Generative Language API` and `Cloud Text-to-Speech API` both enabled
+- Google Cloud API set as environment variable with name `GOOGLE_API_KEY`
 
 ## Note
 - Screenshots will be taken and processed every 2 seconds by default. This can be changed in the interface. 
