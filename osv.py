@@ -19,7 +19,9 @@ api_key = os.getenv('GOOGLE_API_KEY')
 genai.configure(api_key=api_key)
 model = genai.GenerativeModel(model_name='gemini-1.5-flash-latest')
 chat = model.start_chat(history=[])
-img_path = r'C:\Users\fbb92\OneDrive\Desktop\Projects\test\geminiOS\vision\img\img1.png'
+img_dir = os.path.join(os.path.expanduser("~"), "LLM_Vision_OS", "images")
+os.makedirs(img_dir, exist_ok=True)
+img_path = os.path.join(img_dir, "img1.png")
 exit_event = threading.Event()
 stop_listening_event = threading.Event()
 screenshot_interval = 2 
