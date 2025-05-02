@@ -17,7 +17,7 @@ from PyQt5 import QtCore, QtGui, QtWidgets
 ImageFile.LOAD_TRUNCATED_IMAGES = True 
 api_key = os.getenv('GOOGLE_API_KEY')
 genai.configure(api_key=api_key)
-model = genai.GenerativeModel(model_name='gemini-1.5-flash-latest')
+model = genai.GenerativeModel(model_name='gemini-2.0-flash-lite')
 chat = model.start_chat(history=[])
 img_dir = os.path.join(os.path.expanduser("~"), "LLM_Vision_OS", "images")
 os.makedirs(img_dir, exist_ok=True)
